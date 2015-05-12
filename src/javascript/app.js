@@ -83,19 +83,20 @@ Ext.define("state-editors-by-release", {
     _fetchSnapshots: function(releases){
         var destinationState = "Accepted",
             releaseName = "Unscheduled",
-            release_list = ["null"];
+            release_find = null;
 
         if (releases) {
-            release_list = _.map(releases, function(r){
+            var release_list = _.map(releases, function(r){
                 return r.get('ObjectID');
             });
             releaseName = releases[0].get('Name');
+            release_find = {$in: release_list};
         }
 
         var store = Ext.create('Rally.data.lookback.SnapshotStore', {
             fetch: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project"],
             findConfig: {
-                "Release": {$in: release_list},
+                "Release":release_find,
                 "_TypeHierarchy": 'HierarchicalRequirement',
                 "ScheduleState": {$gte: destinationState},
                 "_PreviousValues.ScheduleState": {$exists: true}
@@ -136,7 +137,6 @@ Ext.define("state-editors-by-release", {
         _.each(snaps_by_oid, function(snaps, oid){
             var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null, Iteration: null, Project: null};
             _.each(snaps, function(snap){
-                console.log('project',snap.FormattedID, snap.Project, snap._ValidFrom);
                 rec.FormattedID = snap.FormattedID;
                 rec.ObjectID = snap.ObjectID;
                 rec.Name = snap.Name;
