@@ -1,0 +1,7 @@
+{
+    "name": "State Editor by Release",
+    "className": "state-editors-by-release",
+    "server": "https://rally1.rallydev.com",
+    "sdk": "2.0",
+    "apiKey": "_PUT_APIKEY_HERE_"
+}
