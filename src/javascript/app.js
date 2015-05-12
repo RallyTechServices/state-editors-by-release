@@ -28,29 +28,80 @@ Ext.define("state-editors-by-release", {
             this.add({xtype: 'container',itemId:'ct-display'});
             this.add({xtype: 'tsinfolink'});
         }
-
     },
     _updateApp: function(releaseRecord){
         this.logger.log('_updateApp',releaseRecord);
         this._fetchData(releaseRecord);
     },
+    _fetchReleasesInScope: function(release){
+        var deferred = Ext.create('Deft.Deferred');
+
+        var store = Ext.create('Rally.data.wsapi.Store',{
+            model: 'Release',
+            fetch: ['ObjectID'],
+            filters: [{
+                property: 'Name',
+                value: release.get('Name')
+            },{
+                property: 'ReleaseStartDate',
+                value: release.get('ReleaseStartDate')
+            },{
+                property: 'ReleaseDate',
+                value: release.get('ReleaseDate')
+            }]
+        });
+        store.load({
+            scope: this,
+            callback: function(records, operation, success){
+                if (success){
+                    deferred.resolve(records);
+                } else {
+                    deferred.reject('Failed to load releases: ' + operation.error.errors[0]);
+                }
+            }
+        });
+
+        return deferred;
+    },
     _fetchData: function(release){
-        var releases = [null],
-            destinationState = "Accepted",
-            releaseName = "Unscheduled";
+
 
         if (release){
             //We need to get all possible releases in scope, blech
-            releases = [release.get('ObjectID')];
-            releaseName = release.get('Name');
+            this._fetchReleasesInScope(release).then({
+                scope: this,
+                success: this._fetchSnapshots,
+                failure: function(errorMsg){
+
+                }
+            });
+        } else {
+            this._fetchSnapshots(release);
         }
+
+    },
+    _fetchSnapshots: function(releases){
+        var destinationState = "Accepted",
+            releaseName = "Unscheduled",
+            release_list = ["null"];
+
+        if (releases) {
+            release_list = _.map(releases, function(r){
+                return r.get('ObjectID');
+            });
+            releaseName = releases[0].get('Name');
+        }
+
         var store = Ext.create('Rally.data.lookback.SnapshotStore', {
             fetch: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project"],
             findConfig: {
-                "Release": {$in: releases},
+                "Release": {$in: release_list},
                 "_TypeHierarchy": 'HierarchicalRequirement',
-                "ScheduleState": destinationState,
+                "ScheduleState": {$gte: destinationState},
                 "_PreviousValues.ScheduleState": {$exists: true}
+            },
+            sort: {
+                "_ValidFrom": 1
             },
             hydrate: ["Project","Iteration","_PreviousValues.ScheduleState","ScheduleState"]
         });
@@ -67,42 +118,6 @@ Ext.define("state-editors-by-release", {
             }
         });
     },
-    _buildGrid: function(config){
-        this.logger.log('_buildGrid',config);
-
-        var store = Ext.create('Rally.data.custom.Store', config);
-
-        if (this.down('#rally-grid')){
-            this.down('#rally-grid').destroy();
-        }
-
-        var grid = this.down('#ct-display').add({
-            xtype: 'rallygrid',
-            itemId: 'rally-grid',
-            store: Ext.create('Rally.data.custom.Store', {
-                data: config.data,
-                autoLoad: true,
-                remoteSort: false,
-                remoteFilter: false,
-                pageSize: config.pageSize,
-                width: '75%'
-            }),
-            columnCfgs: [
-                {dataIndex: 'FormattedID', text: 'FormattedID'},
-                {dataIndex: 'Name', text: 'Name', flex: 1},
-                {dataIndex: 'ChangedByOid', width: "20%", text: 'Accepted By', xtype: 'templatecolumn', tpl: '<tpl if="UserName">{FirstName} {LastName} ({UserName})</tpl>'},
-                {dataIndex: 'DateChanged', text: 'Last Accepted Date', width: '20%',renderer: function(v){
-                    if (v){
-                        return Rally.util.DateTime.formatWithDefaultDateTime(Rally.util.DateTime.fromIsoString(v));
-                    }
-                    return '';
-
-                }}
-
-            ],
-            showPagingToolbar: false
-        });
-    },
 
     _aggregateSnapshots: function(snapshots){
 
@@ -117,19 +132,20 @@ Ext.define("state-editors-by-release", {
             stateField = "ScheduleState",
             auditStateValue = "Accepted";
 
-
         var user_oids = [];
         _.each(snaps_by_oid, function(snaps, oid){
-            var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null};
+            var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null, Iteration: null, Project: null};
             _.each(snaps, function(snap){
+                console.log('project',snap.FormattedID, snap.Project, snap._ValidFrom);
                 rec.FormattedID = snap.FormattedID;
                 rec.ObjectID = snap.ObjectID;
                 rec.Name = snap.Name;
+                rec.Project = snap.Project || '';
+                rec.Iteration = snap.Iteration || '';
                 if (snap[prevStateField] != snap[stateField] && snap[stateField] == auditStateValue){
                     if (snap._User && !Ext.Array.contains(user_oids, snap._User)){
                         user_oids.push(snap._User);
                     }
-                    console.log('state stuff', snap.FormattedID, snap[prevStateField], snap[stateField] , snap[stateField] == auditStateValue)
                     rec.ChangedByOid = snap._User;
                     rec.DateChanged = snap._ValidFrom
                 }
@@ -171,10 +187,50 @@ Ext.define("state-editors-by-release", {
 
             },
             failure: function(errorMsg){
-
+                Rally.ui.notify.Notifier({message: errorMsg});
             }
         });
     },
+    _buildGrid: function(config){
+        this.logger.log('_buildGrid',config);
+
+        var store = Ext.create('Rally.data.custom.Store', config);
+
+        if (this.down('#rally-grid')){
+            this.down('#rally-grid').destroy();
+        }
+
+        var grid = this.down('#ct-display').add({
+            xtype: 'rallygrid',
+            itemId: 'rally-grid',
+            store: Ext.create('Rally.data.custom.Store', {
+                data: config.data,
+                autoLoad: true,
+                remoteSort: false,
+                remoteFilter: false,
+                pageSize: config.pageSize,
+                width: '75%'
+            }),
+            columnCfgs: [
+                {dataIndex: 'FormattedID', text: 'FormattedID'},
+                {dataIndex: 'Name', text: 'Name', flex: 1},
+                {dataIndex: 'ChangedByOid', width: "20%", text: 'Accepted By', xtype: 'templatecolumn', tpl: '<tpl if="UserName">{FirstName} {LastName} ({UserName})</tpl>'},
+                {dataIndex: 'DateChanged', text: 'Last Accepted Date', width: '20%',renderer: function(v){
+                    if (v){
+                        return Rally.util.DateTime.formatWithDefaultDateTime(Rally.util.DateTime.fromIsoString(v));
+                    }
+                    return '';
+
+                }},
+                {
+                    dataIndex: 'Project', text: 'Project', renderer: function(v){ if (v){return v.Name || '';}}
+                }
+
+            ],
+            showPagingToolbar: false
+        });
+    },
+
     _fetchUsers: function(users){
         var deferred = Ext.create('Deft.Deferred');
 
