@@ -4,6 +4,7 @@ Ext.define("state-editors-by-release", {
     componentCls: 'app',
     logger: new Rally.technicalservices.Logger(),
     defaults: { margin: 10 },
+    fetchList: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project"],
     items: [
         {xtype: 'container', itemId: 'ct-header',cls: 'header', layout: {type: 'hbox'}},
         {xtype: 'container', itemId:'ct-display'},
@@ -94,11 +95,11 @@ Ext.define("state-editors-by-release", {
         }
 
         var store = Ext.create('Rally.data.lookback.SnapshotStore', {
-            fetch: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project"],
+            fetch: this.fetchList,
             findConfig: {
                 "Release":release_find,
                 "_TypeHierarchy": 'HierarchicalRequirement',
-                "ScheduleState": {$gte: destinationState},
+              //  "ScheduleState": {$gte: destinationState},
                 "_PreviousValues.ScheduleState": {$exists: true}
             },
             sort: {
@@ -119,7 +120,28 @@ Ext.define("state-editors-by-release", {
             }
         });
     },
+    _fetchStatePrecedence: function(stateField){
+        var deferred = Ext.create('Deft.Deferred');
 
+        Rally.data.ModelFactory.getModel({
+            type: 'HierarchicalRequirement',
+            success: function(model) {
+                var allowedValues = [];
+                model.getField(stateField).getAllowedValueStore().load({
+                    callback: function (records, operation, success) {
+                        Ext.Array.each(records, function (allowedValue) {
+                            //each record is an instance of the AllowedAttributeValue model
+                            allowedValues.push(allowedValue.get('StringValue'));
+                        });
+                        deferred.resolve(allowedValues);
+                    }
+                });
+            }
+        });
+
+
+        return deferred;
+    },
     _aggregateSnapshots: function(snapshots){
 
         var snaps_by_oid = {};
@@ -133,32 +155,57 @@ Ext.define("state-editors-by-release", {
             stateField = "ScheduleState",
             auditStateValue = "Accepted";
 
-        var user_oids = [];
-        _.each(snaps_by_oid, function(snaps, oid){
-            var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null, Iteration: null, Project: null};
-            _.each(snaps, function(snap){
-                rec.FormattedID = snap.FormattedID;
-                rec.ObjectID = snap.ObjectID;
-                rec.Name = snap.Name;
-                rec.Project = snap.Project || '';
-                rec.Iteration = snap.Iteration || '';
-                if (snap[prevStateField] != snap[stateField] && snap[stateField] == auditStateValue){
-                    if (snap._User && !Ext.Array.contains(user_oids, snap._User)){
-                        user_oids.push(snap._User);
+        this._fetchStatePrecedence(stateField).then({
+            scope: this,
+            success: function(allowedValues){
+
+                var user_oids = [],
+                    auditStateIndex = _.indexOf(allowedValues, auditStateValue);
+                _.each(snaps_by_oid, function(snaps, oid){
+                    var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null, Iteration: null, Project: null};
+                    _.each(snaps, function(snap){
+                        rec.FormattedID = snap.FormattedID;
+                        rec.ObjectID = snap.ObjectID;
+                        rec.Name = snap.Name;
+                        rec.Project = snap.Project || '';
+                        rec.Iteration = snap.Iteration || '';
+                        rec.ScheduleState = snap.ScheduleState;
+                        console.log('schedulestate',rec.ScheduleState);
+                        var prevStateIndex = _.indexOf(allowedValues,snap[prevStateField]),
+                            stateIndex = _.indexOf(allowedValues, snap[stateField]);
+
+                        /**
+                         * This needs to cover 3 scenarios:
+                         * 1 - transition from a lower state to the audit state
+                         * 2 - transition from a lower state to a state beyond the audit state
+                         * 3 - transition from a higher state to the audit state
+                         * Note, we do not want to capture editor when going from the audit state to a higher state
+                         */
+                        if (prevStateIndex != stateIndex && stateIndex >= auditStateIndex &&
+                            ((prevStateIndex < auditStateIndex) || (stateIndex == auditStateIndex))){
+                            if (snap._User && !Ext.Array.contains(user_oids, snap._User)){
+                                user_oids.push(snap._User);
+                            }
+                            rec.ChangedByOid = snap._User;
+                            rec.DateChanged = snap._ValidFrom;
+                        }
+                        rec.snap = snap;
+                    });
+                    //They would like to not see last accepted if the story is not in an accepted state or above.
+                    if (_.indexOf(allowedValues, rec.ScheduleState) < auditStateIndex){
+                        rec.ChangedByOid = null;
+                        rec.DateChanged = null;
                     }
-                    rec.ChangedByOid = snap._User;
-                    rec.DateChanged = snap._ValidFrom
-                }
-                rec.snap = snap;
-            });
-            data.push(rec);
+                    data.push(rec);
+                });
+
+                var config = {};
+                config["data"] = data;
+                config["pageSize"] = data.length;
+
+                this._hydrateUsers(config, user_oids);
+            }
         });
-
-        var config = {};
-        config["data"] = data;
-        config["pageSize"] = data.length;
-
-        this._hydrateUsers(config, user_oids);
     },
     _hydrateUsers: function(config, users){
         this.logger.log('_hydrateUsers',users);
@@ -214,7 +261,23 @@ Ext.define("state-editors-by-release", {
             columnCfgs: [
                 {dataIndex: 'FormattedID', text: 'FormattedID'},
                 {dataIndex: 'Name', text: 'Name', flex: 1},
-                {dataIndex: 'ChangedByOid', width: "20%", text: 'Accepted By', xtype: 'templatecolumn', tpl: '<tpl if="UserName">{FirstName} {LastName} ({UserName})</tpl>'},
+                {
+                    dataIndex: 'ChangedByOid',
+                    width: "20%",
+                    text: 'Accepted By',
+                    renderer: function(v,m,r){
+
+                        if (r.get('UserName')){
+                            return Ext.String.format("{0} {1} ({2})", r.get('FirstName'), r.get('LastName'), r.get('UserName'));
+                        }
+                        return '';
+                    }
+                 //   xtype: 'templatecolumn',
+                 //   tpl: '<tpl if="UserName">{FirstName} {LastName} ({UserName})</tpl>'
+                },
+                {
+                    dataIndex: 'ScheduleState', text: 'Schedule State'
+                },
                 {dataIndex: 'DateChanged', text: 'Last Accepted Date', width: '20%',renderer: function(v){
                     if (v){
                         return Rally.util.DateTime.formatWithDefaultDateTime(Rally.util.DateTime.fromIsoString(v));
