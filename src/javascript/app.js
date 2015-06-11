@@ -4,7 +4,7 @@ Ext.define("state-editors-by-release", {
     componentCls: 'app',
     logger: new Rally.technicalservices.Logger(),
     defaults: { margin: 10 },
-    fetchList: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project","Release"],
+    fetchList: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project","Release","_SnapshotNumber"],
     wsapiFetchList: ['FormattedID','Name','ScheduleState','Project','Iteration','Release'],
     items: [
         {xtype: 'container', itemId: 'ct-header',cls: 'header', layout: {type: 'hbox'}},
@@ -42,7 +42,7 @@ Ext.define("state-editors-by-release", {
         this.setLoading(true);
 
         var promises = [this._fetchCurrentReleaseRecords(release), this._fetchSnapshots()],
-            releaseName = release.get('Name');
+            releaseName = release ? release.get('Name') : null;
 
         Deft.Promise.all(promises).then({
             scope: this,
@@ -176,7 +176,7 @@ Ext.define("state-editors-by-release", {
                     auditStateIndex = _.indexOf(allowedValues, auditStateValue);
 
                 _.each(snaps_by_oid, function(snaps, oid){
-                    var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null, Iteration: null, Project: null};
+                    var rec = {FormattedID: null, ObjectID: null, Name: null, ChangedByOid: null, DateChanged: null, snap: null, Iteration: null, Project: null, FirstName: '', LastName: '', UserName: ''};
                     _.each(snaps, function(snap) {
                         rec.FormattedID = snap.FormattedID;
                         rec.ObjectID = snap.ObjectID;
@@ -184,7 +184,7 @@ Ext.define("state-editors-by-release", {
                         rec.Project = snap.Project || '';
                         rec.Iteration = snap.Iteration || '';
                         rec.ScheduleState = snap.ScheduleState;
-                        rec.Release = '';
+                        rec.Release = null;
                         if (snap.Release){
                             rec.Release = snap.Release.Name || snap.Release;
                         }
@@ -198,7 +198,7 @@ Ext.define("state-editors-by-release", {
                          * 3 - transition from a higher state to the audit state
                          * Note, we do not want to capture editor when going from the audit state to a higher state
                          */
-                        if (snap[prevStateField] && snap[prevStateField].length > 0 &&  //since we are also pulling current release records, we need to ignore what looks like the state transition for those.
+                        if (((snap[prevStateField] && snap[prevStateField].length > 0)||snap._SnapshotNumber == 0) &&  //since we are also pulling current release records, we need to ignore what looks like the state transition for those.
                             prevStateIndex != stateIndex && stateIndex >= auditStateIndex &&
                             ((prevStateIndex < auditStateIndex) || (stateIndex == auditStateIndex))){
 
@@ -249,11 +249,9 @@ Ext.define("state-editors-by-release", {
                 _.each(config.data, function(rec){
                     var oid = rec["ChangedByOid"] || 0;
 
-                    if (oid > 0){
-                        rec["UserName"] = (userHash[oid] ? userHash[oid].UserName || '' : 'User ' + oid );
-                        rec["FirstName"] = (userHash[oid] ? userHash[oid].FirstName || '' : '');
-                        rec["LastName"] = (userHash[oid] ? userHash[oid].LastName || '' : '');
-                    }
+                    rec["UserName"] = oid > 0 ? (userHash[oid] ? userHash[oid].UserName || '' : 'User ' + oid ) : '';
+                    rec["FirstName"] = (userHash[oid] ? userHash[oid].FirstName || '' : '');
+                    rec["LastName"] = (userHash[oid] ? userHash[oid].LastName || '' : '');
                 });
 
                 this._buildGrid(config);
