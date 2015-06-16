@@ -3,11 +3,11 @@
 <head>
     <title>State Editor by Release</title>
     <!--  (c) 2015 Rally Software Development Corp.  All Rights Reserved. -->
-    <!--  Build Date: Wed Jun 10 2015 18:09:28 GMT-0600 (MDT) -->
+    <!--  Build Date: Tue Jun 16 2015 14:42:46 GMT-0700 (MST) -->
     
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Wed Jun 10 2015 18:09:28 GMT-0600 (MDT)";
-        var CHECKSUM = 8780222178;
+        var APP_BUILD_DATE = "Tue Jun 16 2015 14:42:46 GMT-0700 (MST)";
+        var CHECKSUM = 9125432473;
     </script>
     
     <script type="text/javascript" src="/apps/2.0/sdk.js"></script>
@@ -416,7 +416,6 @@ Ext.define("state-editors-by-release", {
                     if (rec.Release == releaseName){ //they only want to see records whose current release value matches the desired value.
                         data.push(rec);
                     }
-
                 });
 
                 var config = {};
@@ -454,7 +453,7 @@ Ext.define("state-editors-by-release", {
 
             },
             failure: function(errorMsg){
-                Rally.ui.notify.Notifier({message: errorMsg});
+                Rally.ui.notify.Notifier({message: "Error hydrating users:  " + operation.error.errors.join(',')});
             }
         });
     },
@@ -513,29 +512,41 @@ Ext.define("state-editors-by-release", {
     },
 
     _fetchUsers: function(users){
+        var deferred = Ext.create('Deft.Deferred'),
+            filters = [],
+            promises =[];
+
+        for (var i=0; i<users.length; i++){
+            filters.push({
+                property:'ObjectID',
+                value: users[i]
+            });
+
+            if (i % 10 == 0 || i == users.length -1){
+                var user_filter = Rally.data.wsapi.Filter.or(filters);
+                promises.push(this._fetchUserChunk(user_filter));
+                filters = [];
+            }
+        }
+
+        Deft.Promise.all(promises).then({
+            scope: this,
+            success: function(records){
+                deferred.resolve(_.flatten(records));
+            },
+            failure: function(operation){
+                deferred.reject(operation)
+            }
+        });
+        return deferred;
+    },
+    _fetchUserChunk: function(user_filter){
         var deferred = Ext.create('Deft.Deferred');
-
-        var minObjectID = Ext.Array.min(users),
-            maxObjectID = Ext.Array.max(users),
-            filters = [];
-
-        filters.push({
-            property: 'ObjectID',
-            operator: '>=',
-            value: minObjectID
-        });
-        filters.push({
-            property: 'ObjectID',
-            operator: '<=',
-            value: maxObjectID
-        });
-
-        filters = Rally.data.wsapi.Filter.and(filters);
 
         var user_store = Ext.create('Rally.data.wsapi.Store',{
             model: 'User',
             fetch: ['UserName','FirstName','LastName','ObjectID'],
-            filters: filters
+            filters: user_filter
         });
         user_store.load({
             scope: this,
@@ -543,7 +554,7 @@ Ext.define("state-editors-by-release", {
                 if (success) {
                     deferred.resolve(records);
                 } else {
-                    deferred.reject("Error hydrating users:  " + operations.error.errors[0]);
+                    deferred.reject(operation);
                 }
             }
         });
