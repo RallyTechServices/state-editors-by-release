@@ -220,7 +220,6 @@ Ext.define("state-editors-by-release", {
                     if (rec.Release == releaseName){ //they only want to see records whose current release value matches the desired value.
                         data.push(rec);
                     }
-
                 });
 
                 var config = {};
@@ -258,7 +257,7 @@ Ext.define("state-editors-by-release", {
 
             },
             failure: function(errorMsg){
-                Rally.ui.notify.Notifier({message: errorMsg});
+                Rally.ui.notify.Notifier({message: "Error hydrating users:  " + operation.error.errors.join(',')});
             }
         });
     },
@@ -317,29 +316,41 @@ Ext.define("state-editors-by-release", {
     },
 
     _fetchUsers: function(users){
+        var deferred = Ext.create('Deft.Deferred'),
+            filters = [],
+            promises =[];
+
+        for (var i=0; i<users.length; i++){
+            filters.push({
+                property:'ObjectID',
+                value: users[i]
+            });
+
+            if (i % 10 == 0 || i == users.length -1){
+                var user_filter = Rally.data.wsapi.Filter.or(filters);
+                promises.push(this._fetchUserChunk(user_filter));
+                filters = [];
+            }
+        }
+
+        Deft.Promise.all(promises).then({
+            scope: this,
+            success: function(records){
+                deferred.resolve(_.flatten(records));
+            },
+            failure: function(operation){
+                deferred.reject(operation)
+            }
+        });
+        return deferred;
+    },
+    _fetchUserChunk: function(user_filter){
         var deferred = Ext.create('Deft.Deferred');
-
-        var minObjectID = Ext.Array.min(users),
-            maxObjectID = Ext.Array.max(users),
-            filters = [];
-
-        filters.push({
-            property: 'ObjectID',
-            operator: '>=',
-            value: minObjectID
-        });
-        filters.push({
-            property: 'ObjectID',
-            operator: '<=',
-            value: maxObjectID
-        });
-
-        filters = Rally.data.wsapi.Filter.and(filters);
 
         var user_store = Ext.create('Rally.data.wsapi.Store',{
             model: 'User',
             fetch: ['UserName','FirstName','LastName','ObjectID'],
-            filters: filters
+            filters: user_filter
         });
         user_store.load({
             scope: this,
@@ -347,7 +358,7 @@ Ext.define("state-editors-by-release", {
                 if (success) {
                     deferred.resolve(records);
                 } else {
-                    deferred.reject("Error hydrating users:  " + operations.error.errors[0]);
+                    deferred.reject(operation);
                 }
             }
         });
