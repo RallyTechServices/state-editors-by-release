@@ -6,39 +6,66 @@ Ext.define("state-editors-by-release", {
     defaults: { margin: 10 },
     fetchList: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project","Release","_SnapshotNumber"],
     wsapiFetchList: ['FormattedID','Name','ScheduleState','Project','Iteration','Release'],
-    items: [
-        {xtype: 'container', itemId: 'ct-header',cls: 'header', layout: {type: 'hbox'}},
-        {xtype: 'container', itemId:'ct-display'},
-        {xtype: 'tsinfolink'}
 
-    ],
     onScopeChange: function(scope) {
         // render/refresh components
         this.logger.log('onScopeChange', scope);
+
         this._updateApp(scope.getRecord());
     },
-    launch: function(){
-        this.callParent();
-        this._addComponents();
-    },
+    //launch: function(){
+    //    this.callParent();
+    //    this._addComponents();
+    //},
 
     _addComponents: function(){
-        if (this.getHeader()) {
-            //Do nothing
+        if (this.down('#ct-display')){
+            this.down('#ct-display').removeAll();
         } else {
-            this.add({xtype: 'container',itemId:'ct-header', cls: 'header', layout: {type: 'hbox'}});
-            this.add({xtype: 'container',itemId:'ct-display'});
-            this.add({xtype: 'tsinfolink'});
+            if (this.getHeader()) {
+                this.add({xtype: 'container',itemId:'ct-display'});
+                this.add({xtype: 'tsinfolink'});
+            } else {
+                this.add({xtype: 'container',itemId:'ct-header', cls: 'header', layout: {type: 'hbox'}});
+                this.add({xtype: 'container',itemId:'ct-display'});
+                this.add({xtype: 'tsinfolink'});
+            }
+            this.getHeader().add({
+                xtype: 'rallybutton',
+                text: 'Export',
+                style: {
+                    float: 'right'
+                },
+                width: 75,
+                margin: 10,
+                listeners: {
+                    scope: this,
+                    click: this._export
+                }
+            });
+        }
+    },
+    _export: function(){
+        var grid = this.down('rallygrid');
+        if (grid){
+            var filename = Ext.String.format('export-{0}.csv',Rally.util.DateTime.format(new Date(), 'Y-m-d'));
+            var csv = Rally.technicalservices.FileUtilities.getCSVFromGrid(grid);
+            Rally.technicalservices.FileUtilities.saveCSVToFile(csv,filename);
         }
     },
     _updateApp: function(releaseRecord){
         this.logger.log('_updateApp',releaseRecord);
+        this._addComponents();
         this._fetchData(releaseRecord);
     },
 
     _fetchData: function(release){
 
-        this.down('#ct-display').removeAll();
+        if (this.down('#ct-display')){
+            this.down('#ct-display').removeAll();
+        } else {
+            this.add({})
+        }
         this.setLoading(true);
 
         var promises = [this._fetchCurrentReleaseRecords(release), this._fetchSnapshots()],
@@ -48,7 +75,7 @@ Ext.define("state-editors-by-release", {
             scope: this,
             success: function(results){
                 this.logger.log('_fetchData promises returned', results);
-                 this._aggregateSnapshots(results[1], results[0], releaseName);
+                this._aggregateSnapshots(results[1], results[0], releaseName);
                 this.setLoading(false);
             },
             failure: function(operation){
