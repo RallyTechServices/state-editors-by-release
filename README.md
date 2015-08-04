@@ -3,6 +3,8 @@
 For the selected release, displays a grid of all stories associated with the release, the accepted date,
 and the last person to accept the story.
 
+![ScreenShot](/images/state-editoris-by-release.png)
+
 If the story bypasses the Accepted state in a transition (e.g. Completed >> Released), then the Accepted By
 person will be the user who made the transition.
 
