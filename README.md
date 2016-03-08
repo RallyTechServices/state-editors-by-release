@@ -1,6 +1,6 @@
-#State Editor by Release
+#State Editor by Timebox
 
-For the selected release, displays a grid of all stories associated with the release, the accepted date,
+For the selected release or iteration, displays a grid of all stories associated with the release\iteration, the accepted date,
 and the last person to accept the story.
 
 ![ScreenShot](/images/state-editors-by-release.png)
@@ -34,3 +34,6 @@ Note that if a story transitioned past the accepted state before it was associat
 accepted date and person may not be displayed in this report.
 
 The app uses Rally App SDK v2.0 and the Lookback API (LBAPI).
+
+App Settings:
+If the app is installed on a timebox scoped board, then there will be an option to use the Dashboard scope.  Otherwise, the user must choose between release and iteration. 
