@@ -3,11 +3,11 @@
 <head>
     <title>State Editor by Release</title>
     <!--  (c) 2015 Rally Software Development Corp.  All Rights Reserved. -->
-    <!--  Build Date: Tue Aug 04 2015 14:40:52 GMT-0600 (MDT) -->
+    <!--  Build Date: Tue Mar 08 2016 07:33:27 GMT-0700 (MST) -->
     
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Tue Aug 04 2015 14:40:52 GMT-0600 (MDT)";
-        var CHECKSUM = 35852660084;
+        var APP_BUILD_DATE = "Tue Mar 08 2016 07:33:27 GMT-0700 (MST)";
+        var CHECKSUM = 43240862428;
     </script>
     
     <script type="text/javascript" src="/apps/2.0/sdk.js"></script>
@@ -759,50 +759,112 @@ Ext.define('Rally.technicalservices.FileUtilities', {
 });
 
 Ext.define("state-editors-by-release", {
-    extend: 'Rally.app.TimeboxScopedApp',
-    scopeType: 'release',
+    extend: 'Rally.app.App',
+
     componentCls: 'app',
     logger: new Rally.technicalservices.Logger(),
     defaults: { margin: 10 },
+
+    config: {
+        defaultSettings: {
+            settingsScopeType: null
+        }
+    },
+
     fetchList: ['FormattedID','Name','_User','_PreviousValues.ScheduleState', "ScheduleState","_ValidFrom", "Iteration", "Project","Release","_SnapshotNumber"],
     wsapiFetchList: ['FormattedID','Name','ScheduleState','Project','Iteration','Release'],
 
-    onScopeChange: function(scope) {
-        // render/refresh components
-        this.logger.log('onScopeChange', scope);
-
-        this._updateApp(scope.getRecord());
+    onTimeboxScopeChange: function(timebox){
+        this.logger.log('onTimeboxScopeChange',this.useDashboardScope, timebox, this.scopeType);
+        if (this.useDashboardScope && timebox && timebox.type === this.scopeType){
+            this._updateApp(timebox);
+        }
     },
-    //launch: function(){
-    //    this.callParent();
-    //    this._addComponents();
-    //},
+    launch: function() {
 
-    _addComponents: function(){
-        if (this.down('#ct-display')){
-            this.down('#ct-display').removeAll();
+        var context = this.getContext();
+        this.removeAll();
+
+        var settingsScopeType = this.getSetting('settingsScopeType') || null,
+            hasScope = this._hasScope();
+
+        this.logger.log('launch', settingsScopeType, hasScope);
+        if (settingsScopeType === null && !hasScope){
+            this.add({
+                xtype: 'container',
+                html: 'Please select a scope type in the App settings.'
+            });
+            return;
+        }
+        if (settingsScopeType === null){
+            this.scopeType = this.getContext().getTimeboxScope().type;
         } else {
-            if (this.getHeader()) {
-                this.add({xtype: 'container',itemId:'ct-display'});
-                this.add({xtype: 'tsinfolink'});
-            } else {
-                this.add({xtype: 'container',itemId:'ct-header', cls: 'header', layout: {type: 'hbox'}});
-                this.add({xtype: 'container',itemId:'ct-display'});
-                this.add({xtype: 'tsinfolink'});
+            this.scopeType = settingsScopeType;
+        }
+        this.useDashboardScope = hasScope && settingsScopeType === null
+        this._addComponents(this.useDashboardScope);
+
+        this.onTimeboxScopeChange(context.getTimeboxScope() || null);
+    },
+    _hasScope: function() {
+        var context = this.getContext();
+        this.logger.log('_hasScope', context.getTimeboxScope());
+        if (context.getTimeboxScope() && (context.getTimeboxScope().getType() === 'release' || context.getTimeboxScope().getType() === 'iteration' )){
+            return true;
+        }
+        return false;
+    },
+    _addComponents: function(hasTimeboxScope){
+
+        this.logger.log('_addComponents');
+
+        if (!this.down('#ct-header')){
+            var header = this.add({
+                xtype: 'container',
+                itemId: 'ct-header',
+                layout: {
+                    type: 'hbox'
+                }
+            });
+
+            if (!hasTimeboxScope){
+                if (this.scopeType === 'release'){
+                    header.add({
+                        xtype: 'rallyreleasecombobox',
+                        listeners: {
+                            scope: this,
+                            change: this._updateApp
+                        }
+                    });
+                } else {
+                    header.add({
+                        xtype: 'rallyiterationcombobox',
+                        listeners: {
+                            scope: this,
+                            change: this._updateApp
+                        }
+                    });
+                }
             }
-            this.getHeader().add({
+
+            header.add({
                 xtype: 'rallybutton',
                 text: 'Export',
                 style: {
                     float: 'right'
                 },
                 width: 75,
-                margin: 10,
                 listeners: {
                     scope: this,
                     click: this._export
                 }
             });
+        }
+
+        if (this.down('#ct-display')){
+            this.down('#ct-display').removeAll();
+        } else {
+           this.add({xtype: 'container',itemId:'ct-display'});
         }
     },
     _export: function(){
@@ -813,29 +875,28 @@ Ext.define("state-editors-by-release", {
             Rally.technicalservices.FileUtilities.saveCSVToFile(csv,filename);
         }
     },
-    _updateApp: function(releaseRecord){
-        this.logger.log('_updateApp',releaseRecord);
+    _updateApp: function(timebox){
+        var record = timebox && timebox.getRecord();
+        this.logger.log('_updateApp',record);
         this._addComponents();
-        this._fetchData(releaseRecord);
+        this._fetchData(record);
     },
 
-    _fetchData: function(release){
+    _fetchData: function(record){
 
         if (this.down('#ct-display')){
             this.down('#ct-display').removeAll();
-        } else {
-            this.add({})
         }
         this.setLoading(true);
 
-        var promises = [this._fetchCurrentReleaseRecords(release), this._fetchSnapshots()],
-            releaseName = release ? release.get('Name') : null;
+        var promises = [this._fetchCurrentTimeboxRecords(record), this._fetchSnapshots()],
+            timeboxName = record ? record.get('Name') : null;
 
         Deft.Promise.all(promises).then({
             scope: this,
             success: function(results){
                 this.logger.log('_fetchData promises returned', results);
-                this._aggregateSnapshots(results[1], results[0], releaseName);
+                this._aggregateSnapshots(results[1], results[0], timeboxName);
                 this.setLoading(false);
             },
             failure: function(operation){
@@ -844,23 +905,37 @@ Ext.define("state-editors-by-release", {
             }
         });
     },
-    _fetchCurrentReleaseRecords: function(release){
+    _getStartDateName: function(timeboxType){
+        if (timeboxType === 'Release'){
+            return 'ReleaseStartDate';
+        }
+        return 'StartDate';
+    },
+    _getEndDateName: function(timeboxType){
+        if (timeboxType === 'Release'){
+            return 'ReleaseDate';
+        }
+        return 'EndDate';
+
+    },
+    _fetchCurrentTimeboxRecords: function(timebox){
         var deferred = Ext.create('Deft.Deferred'),
+            timeboxType = this.scopeType === 'release' ? 'Release' : 'Iteration',
             filters = [{
-                property: 'Release',
+                property: timeboxType,
                 value: null
             }];
 
-        if (release){
+        if (timebox){
             filters = [{
-                property: 'Release.Name',
-                value: release.get('Name')
-            },{
-                property: 'Release.ReleaseStartDate',
-                value: release.get('ReleaseStartDate')
-            },{
-                property: 'Release.ReleaseDate',
-                value: release.get('ReleaseDate')
+                property: timeboxType + '.Name',
+                value: timebox.get('Name')
+            //},{
+            //    property: timeboxType + '.' + this._getStartDateName(timeboxType),
+            //    value: timebox.get(this._getStartDateName(timeboxType))
+            //},{
+            //    property: timeboxType + '.' + this._getEndDateName(timeboxType),
+            //    value: timebox.get(this._getEndDateName(timeboxType))
             }];
         }
 
@@ -870,12 +945,13 @@ Ext.define("state-editors-by-release", {
             limit: 'Infinity',
             filters: filters
         });
+        this.logger.log('_fetchCurrentTimeboxRecords', filters);
         store.load({
             callback: function(records, operation){
                 if (operation.wasSuccessful()){
                     deferred.resolve(records);
                 } else {
-                    deferred.reject(records);
+                    deferred.reject(operation);
                 }
             }
         });
@@ -904,6 +980,7 @@ Ext.define("state-editors-by-release", {
                 sort: {
                     "_ValidFrom": 1
                 },
+               removeUnauthorizedSnapshots: true,
                 hydrate: ["Project","Iteration","_PreviousValues.ScheduleState","ScheduleState","Release"]
             });
             store.load({
@@ -943,13 +1020,14 @@ Ext.define("state-editors-by-release", {
         });
         return deferred;
     },
-    _aggregateSnapshots: function(snapshots, currentData, releaseName){
+    _aggregateSnapshots: function(snapshots, currentData, timeboxName){
 
-        var snaps_by_oid = {};
+        var snaps_by_oid = {},
+            scopeType = this.scopeType;
         if (snapshots){
             snaps_by_oid = this.aggregateSnapsByOidForModel(snapshots, currentData);
         }
-        this.logger.log('aggregateSnapshots', releaseName);
+        this.logger.log('aggregateSnapshots', timeboxName);
         var data = [],
             prevStateField = "_PreviousValues.ScheduleState",
             stateField = "ScheduleState",
@@ -975,6 +1053,11 @@ Ext.define("state-editors-by-release", {
                         if (snap.Release){
                             rec.Release = snap.Release.Name || snap.Release;
                         }
+                        rec.Iteration = null;
+                        if (snap.Iteration){
+                            rec.Iteration = snap.Iteration.Name || snap.Iteration;
+                        }
+
                         var prevStateIndex = _.indexOf(allowedValues,snap[prevStateField]),
                             stateIndex = _.indexOf(allowedValues, snap[stateField]);
 
@@ -1004,7 +1087,10 @@ Ext.define("state-editors-by-release", {
                         rec.ChangedByOid = null;
                         rec.DateChanged = null;
                     }
-                    if (rec.Release == releaseName){ //they only want to see records whose current release value matches the desired value.
+                    if (scopeType === 'release' && rec.Release == timeboxName){ //they only want to see records whose current release value matches the desired value.
+                        data.push(rec);
+                    }
+                    if (scopeType === 'iteration' && rec.Iteration == timeboxName){ //they only want to see records whose current release value matches the desired value.
                         data.push(rec);
                     }
                 });
@@ -1172,6 +1258,51 @@ Ext.define("state-editors-by-release", {
             snaps_by_oid[oid].push(r.getData());
         });
         return snaps_by_oid;
+    },
+    getSettingsFields: function() {
+        var store = Ext.create('Ext.data.Store',{
+            data: [{name: 'Release', value: 'release'},{name: 'Iteration', value:'iteration'}],
+            fields: ['name','value']
+        }),
+            allowBlank = this._hasScope();
+
+
+        return [{
+            xtype: 'rallycombobox',
+            store: store,
+            name: 'settingsScopeType',
+            fieldLabel: 'Scope Type',
+            labelAlign: 'right',
+            width: 300,
+            displayField: 'name',
+            valueField: 'value',
+            allowNoEntry: allowBlank,
+            noEntryText: ' -- Use Dashboard Scope --'
+        }];
+    },
+    getOptions: function() {
+        return [
+            {
+                text: 'About...',
+                handler: this._launchInfo,
+                scope: this
+            }
+        ];
+    },
+
+    _launchInfo: function() {
+        if ( this.about_dialog ) { this.about_dialog.destroy(); }
+        this.about_dialog = Ext.create('Rally.technicalservices.InfoLink',{});
+    },
+
+    isExternal: function(){
+        return typeof(this.getAppId()) == 'undefined';
+    },
+
+    //onSettingsUpdate:  Override
+    onSettingsUpdate: function (settings){
+        this.logger.log('onSettingsUpdate',settings);
+        this.launch();
     }
 });
 
