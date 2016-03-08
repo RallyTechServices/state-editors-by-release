@@ -3,11 +3,11 @@
 <head>
     <title>State Editor by Release</title>
     <!--  (c) 2015 Rally Software Development Corp.  All Rights Reserved. -->
-    <!--  Build Date: Tue Mar 08 2016 07:33:27 GMT-0700 (MST) -->
+    <!--  Build Date: Tue Mar 08 2016 08:21:38 GMT-0700 (MST) -->
     
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Tue Mar 08 2016 07:33:27 GMT-0700 (MST)";
-        var CHECKSUM = 43240862428;
+        var APP_BUILD_DATE = "Tue Mar 08 2016 08:21:38 GMT-0700 (MST)";
+        var CHECKSUM = 43421119943;
     </script>
     
     <script type="text/javascript" src="/apps/2.0/sdk.js"></script>
@@ -831,6 +831,9 @@ Ext.define("state-editors-by-release", {
                 if (this.scopeType === 'release'){
                     header.add({
                         xtype: 'rallyreleasecombobox',
+                        storeConfig: {
+                            limit: 'Infinity'
+                        },
                         listeners: {
                             scope: this,
                             change: this._updateApp
@@ -839,6 +842,9 @@ Ext.define("state-editors-by-release", {
                 } else {
                     header.add({
                         xtype: 'rallyiterationcombobox',
+                        storeConfig: {
+                            limit: 'Infinity'
+                        },
                         listeners: {
                             scope: this,
                             change: this._updateApp
