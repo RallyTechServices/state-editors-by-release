@@ -71,6 +71,9 @@ Ext.define("state-editors-by-release", {
                 if (this.scopeType === 'release'){
                     header.add({
                         xtype: 'rallyreleasecombobox',
+                        storeConfig: {
+                            limit: 'Infinity'
+                        },
                         listeners: {
                             scope: this,
                             change: this._updateApp
@@ -79,6 +82,9 @@ Ext.define("state-editors-by-release", {
                 } else {
                     header.add({
                         xtype: 'rallyiterationcombobox',
+                        storeConfig: {
+                            limit: 'Infinity'
+                        },
                         listeners: {
                             scope: this,
                             change: this._updateApp
